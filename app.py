@@ -34,10 +34,14 @@ def main():
         st.metric(label="Total Job Descriptions", value=num_jds)
 
     # Display resumes data
-    st.header("Sample Resumes Data")
-    resumes = resumes_collection.find().limit(10)
-    resume_data = [{"Resume ID": res.get("resumeId", "N/A"), "Name": res.get("name", "N/A")} for res in resumes]
-    st.table(resume_data)
+    st.header("Resumes Data (Scrollable)")
+    resumes = resumes_collection.find()
+
+    # Make the display scrollable with expander
+    for resume in resumes:
+        with st.expander(f"Resume ID: {resume.get('resumeId', 'N/A')} - {resume.get('name', 'Unnamed')}"):
+            for key, value in resume.items():
+                st.write(f"**{key}:** {value}")
 
     # Display job descriptions data
     st.header("Sample Job Descriptions Data")
