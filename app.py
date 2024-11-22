@@ -111,19 +111,19 @@ def main():
     with col2:
         st.metric(label="Total Job Descriptions", value=total_jds)
 
-    # Number of resumes to fetch
-    st.header("Resume Fetch Filter")
-    num_resumes_to_fetch = st.number_input(
-        "Enter the Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
-    )
-
-    # Matching Section
-    st.header("Matching System")
-    jds = list(jd_collection.find())
-    jd_options = {jd.get("jobDescriptionId", "N/A"): jd for jd in jds}
-
-    if jd_options:
+    # Resume Fetch Filter and Matching System Dropdowns Side-by-Side
+    col1, col2 = st.columns([1, 2])  # Adjust column widths if needed
+    with col1:
+        num_resumes_to_fetch = st.number_input(
+            "Enter the Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
+        )
+    with col2:
+        jds = list(jd_collection.find())
+        jd_options = {jd.get("jobDescriptionId", "N/A"): jd for jd in jds}
         selected_jd_id = st.selectbox("Select a Job Description:", list(jd_options.keys()))
+
+    # Selected Job Description
+    if jd_options and selected_jd_id:
         selected_jd = jd_options[selected_jd_id]
 
         st.subheader("Selected Job Description")
@@ -142,31 +142,9 @@ def main():
             if matches:
                 st.subheader("Top Matches")
                 match_df = pd.DataFrame(matches[:num_resumes_to_fetch])
-                st.dataframe(match_df.style.set_table_styles(
-                    [{"selector": "td", "props": [("text-align", "center")]}]
-                ), use_container_width=True, height=300)
-
-                # Allow user to click on a resume to see details
-                names_to_ids = {match["Name"]: match["Resume ID"] for match in matches[:num_resumes_to_fetch]}
-                selected_name = st.selectbox("Select a Resume to View Details:", list(names_to_ids.keys()))
-                if selected_name:
-                    st.subheader("Resume Details")
-                    display_resume_details(names_to_ids[selected_name])
+                st.dataframe(match_df, use_container_width=True, height=300)
             else:
                 st.info("No matching resumes found.")
-
-    # Resumes Table (Commented as per request)
-    # st.header("All Resumes")
-    # resumes = resume_collection.find()
-    # resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
-    # resumes_df = pd.DataFrame(resumes_data)
-    # st.dataframe(resumes_df, use_container_width=True, height=400)
-
-    # Job Descriptions Table
-    st.header("All Job Descriptions")
-    jd_data = [{"JD ID": jd.get("jobDescriptionId"), "Query": jd.get("query", "N/A")} for jd in jds]
-    jd_df = pd.DataFrame(jd_data)
-    st.dataframe(jd_df, use_container_width=True, height=200)
 
 if __name__ == "__main__":
     main()
