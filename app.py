@@ -111,6 +111,12 @@ def main():
     with col2:
         st.metric(label="Total Job Descriptions", value=total_jds)
 
+    # Number of resumes to fetch
+    st.sidebar.header("Resume Fetch Filter")
+    num_resumes_to_fetch = st.sidebar.number_input(
+        "Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
+    )
+
     # Matching Section
     st.header("Matching System")
     jds = list(jd_collection.find())
@@ -130,7 +136,7 @@ def main():
             st.error("Embedding not found for the selected JD.")
         else:
             # Find top matches
-            matches = find_top_matches(jd_embedding, num_candidates=total_resumes, top_matches=5)
+            matches = find_top_matches(jd_embedding, num_candidates=num_resumes_to_fetch, top_matches=5)
 
             # Display matches
             if matches:
@@ -139,19 +145,20 @@ def main():
                 st.dataframe(match_df, use_container_width=True, height=300)
 
                 # Allow user to click on a resume to see details
-                selected_resume_id = st.selectbox("Select a Resume to View Details:", [match["Resume ID"] for match in matches])
-                if selected_resume_id:
+                names_to_ids = {match["Name"]: match["Resume ID"] for match in matches}
+                selected_name = st.selectbox("Select a Resume to View Details:", list(names_to_ids.keys()))
+                if selected_name:
                     st.subheader("Resume Details")
-                    display_resume_details(selected_resume_id)
+                    display_resume_details(names_to_ids[selected_name])
             else:
                 st.info("No matching resumes found.")
 
-    # Resumes Table
-   # st.header("All Resumes")
-   # resumes = resume_collection.find()
-   # resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
-   # resumes_df = pd.DataFrame(resumes_data)
-   # st.dataframe(resumes_df, use_container_width=True, height=400)
+    # Resumes Table (Commented as per request)
+    # st.header("All Resumes")
+    # resumes = resume_collection.find()
+    # resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
+    # resumes_df = pd.DataFrame(resumes_data)
+    # st.dataframe(resumes_df, use_container_width=True, height=400)
 
     # Job Descriptions Table
     st.header("All Job Descriptions")
