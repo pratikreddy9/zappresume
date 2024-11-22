@@ -113,8 +113,8 @@ def main():
 
     # Number of resumes to fetch
     st.header("Resume Fetch Filter")
-    num_resumes_to_fetch = st.slider(
-        "Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
+    num_resumes_to_fetch = st.number_input(
+        "Enter the Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
     )
 
     # Matching Section
@@ -142,7 +142,9 @@ def main():
             if matches:
                 st.subheader("Top Matches")
                 match_df = pd.DataFrame(matches[:num_resumes_to_fetch])
-                st.dataframe(match_df, use_container_width=True, height=300)
+                st.dataframe(match_df.style.set_table_styles(
+                    [{"selector": "td", "props": [("text-align", "center")]}]
+                ), use_container_width=True, height=300)
 
                 # Allow user to click on a resume to see details
                 names_to_ids = {match["Name"]: match["Resume ID"] for match in matches[:num_resumes_to_fetch]}
