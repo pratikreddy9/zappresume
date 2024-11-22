@@ -147,11 +147,11 @@ def main():
                 st.info("No matching resumes found.")
 
     # Resumes Table
-    st.header("All Resumes")
-    resumes = resume_collection.find()
-    resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
-    resumes_df = pd.DataFrame(resumes_data)
-    st.dataframe(resumes_df, use_container_width=True, height=400)
+   # st.header("All Resumes")
+   # resumes = resume_collection.find()
+   # resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
+   # resumes_df = pd.DataFrame(resumes_data)
+   # st.dataframe(resumes_df, use_container_width=True, height=400)
 
     # Job Descriptions Table
     st.header("All Job Descriptions")
