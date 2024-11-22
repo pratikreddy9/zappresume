@@ -49,13 +49,48 @@ def find_top_matches(jd_embedding, num_candidates=10, top_matches=5):
     results = sorted(results, key=lambda x: x["Similarity Score"], reverse=True)
     return results[:top_matches]  # Return top matches
 
-# Function to display detailed resume data
+# Function to display detailed resume data (only 9 keys, excluding embedding)
 def display_resume_details(resume_id):
     resume = resume_collection.find_one({"resumeId": resume_id})
     if resume:
-        # Convert resume data into a DataFrame for display
-        detailed_data = [{"Key": key, "Value": value} for key, value in resume.items()]
-        st.table(pd.DataFrame(detailed_data))
+        # Filter only required fields
+        filtered_data = {
+            "_id": str(resume.get("_id")),
+            "resumeId": resume.get("resumeId"),
+            "name": resume.get("name"),
+            "email": resume.get("email"),
+            "contactNo": resume.get("contactNo"),
+            "address": resume.get("address"),
+            "educationalQualifications": resume.get("educationalQualifications"),
+            "jobExperiences": resume.get("jobExperiences"),
+            "keywords": resume.get("keywords"),
+            "skills": resume.get("skills"),
+        }
+
+        # Format educational qualifications and job experiences
+        edu_qual = [
+            f"{eq.get('degree', 'N/A')} in {eq.get('field', 'N/A')} ({eq.get('graduationYear', 'N/A')})"
+            for eq in filtered_data.get("educationalQualifications", [])
+        ]
+        job_exp = [
+            f"{je.get('title', 'N/A')} at {je.get('company', 'N/A')} ({je.get('duration', 'N/A')} years)"
+            for je in filtered_data.get("jobExperiences", [])
+        ]
+        skills = [skill.get("skillName", "N/A") for skill in filtered_data.get("skills", [])]
+
+        # Display in a clean table format
+        st.table(pd.DataFrame([
+            {"Key": "_id", "Value": filtered_data["_id"]},
+            {"Key": "resumeId", "Value": filtered_data["resumeId"]},
+            {"Key": "name", "Value": filtered_data["name"]},
+            {"Key": "email", "Value": filtered_data["email"]},
+            {"Key": "contactNo", "Value": filtered_data["contactNo"]},
+            {"Key": "address", "Value": filtered_data["address"]},
+            {"Key": "educationalQualifications", "Value": "; ".join(edu_qual)},
+            {"Key": "jobExperiences", "Value": "; ".join(job_exp)},
+            {"Key": "keywords", "Value": "; ".join(filtered_data.get("keywords", []))},
+            {"Key": "skills", "Value": "; ".join(skills)},
+        ]))
     else:
         st.warning("Resume details not found!")
 
