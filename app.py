@@ -12,6 +12,9 @@ db = client["resumes_database"]
 resume_collection = db["resumes"]
 jd_collection = db["job_description"]
 
+# Set Streamlit page config for wider layout
+st.set_page_config(layout="wide")
+
 # Function to calculate cosine similarity
 def calculate_cosine_similarity(vector1, vector2):
     vector1 = np.array(vector1)
@@ -133,7 +136,7 @@ def main():
             if matches:
                 st.subheader("Top Matches")
                 match_df = pd.DataFrame(matches)
-                st.dataframe(match_df, height=300)
+                st.dataframe(match_df, use_container_width=True, height=300)
 
                 # Allow user to click on a resume to see details
                 selected_resume_id = st.selectbox("Select a Resume to View Details:", [match["Resume ID"] for match in matches])
@@ -148,13 +151,13 @@ def main():
     resumes = resume_collection.find()
     resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
     resumes_df = pd.DataFrame(resumes_data)
-    st.dataframe(resumes_df, height=400)
+    st.dataframe(resumes_df, use_container_width=True, height=400)
 
     # Job Descriptions Table
     st.header("All Job Descriptions")
     jd_data = [{"JD ID": jd.get("jobDescriptionId"), "Query": jd.get("query", "N/A")} for jd in jds]
     jd_df = pd.DataFrame(jd_data)
-    st.dataframe(jd_df, height=200)
+    st.dataframe(jd_df, use_container_width=True, height=200)
 
 if __name__ == "__main__":
     main()
