@@ -37,10 +37,20 @@ def flatten_resume(resume):
         "Keywords": keywords,
     }
 
+# Match resumes with the selected JD
+def match_resumes_with_jd(jd, resumes_collection):
+    matched_resumes = []
+    jd_keywords = jd.get("query", "").split()  # Assuming JD's query is a string of keywords
+    for resume in resumes_collection.find():
+        resume_keywords = resume.get("keywords", [])
+        if any(keyword in jd_keywords for keyword in resume_keywords):
+            matched_resumes.append(flatten_resume(resume))
+    return matched_resumes
+
 # Main function to build Streamlit dashboard
 def main():
     # Page title
-    st.title("Resume and Job Description Dashboard")
+    st.title("Resume and Job Description Matching Dashboard")
 
     # Connect to MongoDB
     client = get_mongo_client()
@@ -62,16 +72,39 @@ def main():
     with col2:
         st.metric(label="Total Job Descriptions", value=num_jds)
 
-    # Fetch and display resumes in table format
-    st.header("Resumes Data (Scrollable Table)")
+    # Matching Section
+    st.header("Matching System")
+    jds = list(jd_collection.find())
+    jd_options = {jd.get("jobDescriptionId", "N/A"): jd for jd in jds}
+
+    if jd_options:
+        selected_jd_id = st.selectbox("Select a Job Description:", list(jd_options.keys()))
+        selected_jd = jd_options[selected_jd_id]
+
+        st.subheader("Selected Job Description")
+        st.write(f"**Job Description ID:** {selected_jd_id}")
+        st.write(f"**Query:** {selected_jd.get('query', 'N/A')}")
+
+        # Match resumes
+        matched_resumes = match_resumes_with_jd(selected_jd, resumes_collection)
+
+        # Display matched resumes
+        if matched_resumes:
+            st.subheader("Matched Resumes")
+            matched_df = pd.DataFrame(matched_resumes)
+            st.dataframe(matched_df, height=400)
+        else:
+            st.info("No matching resumes found.")
+
+    # Resumes Table
+    st.header("All Resumes")
     resumes = resumes_collection.find()
     resumes_data = [flatten_resume(resume) for resume in resumes]
     resumes_df = pd.DataFrame(resumes_data)
     st.dataframe(resumes_df, height=400)
 
-    # Fetch and display job descriptions in table format
-    st.header("Sample Job Descriptions Data (Table)")
-    jds = jd_collection.find().limit(10)
+    # Job Descriptions Table
+    st.header("All Job Descriptions")
     jd_data = [{"JD ID": jd.get("jobDescriptionId", "N/A"), "Query": jd.get("query", "N/A")} for jd in jds]
     jd_df = pd.DataFrame(jd_data)
     st.dataframe(jd_df, height=200)
