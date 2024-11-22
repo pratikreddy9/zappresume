@@ -146,5 +146,18 @@ def main():
             else:
                 st.info("No matching resumes found.")
 
+    # Resumes Table (Commented as per request)
+    # st.header("All Resumes")
+    # resumes = resume_collection.find()
+    # resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
+    # resumes_df = pd.DataFrame(resumes_data)
+    # st.dataframe(resumes_df, use_container_width=True, height=400)
+
+    # Job Descriptions Table
+    st.header("All Job Descriptions")
+    jd_data = [{"JD ID": jd.get("jobDescriptionId"), "Query": jd.get("query", "N/A")} for jd in jds]
+    jd_df = pd.DataFrame(jd_data)
+    st.dataframe(jd_df, use_container_width=True, height=200)
+
 if __name__ == "__main__":
     main()
