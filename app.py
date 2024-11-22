@@ -27,7 +27,7 @@ def calculate_cosine_similarity(vector1, vector2):
     return dot_product / (norm_vector1 * norm_vector2)
 
 # Function to find top matches
-def find_top_matches(jd_embedding, num_candidates=10, top_matches=5):
+def find_top_matches(jd_embedding, num_candidates=10):
     results = []
     resumes = resume_collection.find().limit(num_candidates)
 
@@ -50,7 +50,7 @@ def find_top_matches(jd_embedding, num_candidates=10, top_matches=5):
 
     # Sort results by similarity score (descending)
     results = sorted(results, key=lambda x: x["Similarity Score"], reverse=True)
-    return results[:top_matches]  # Return top matches
+    return results  # Return all matches
 
 # Function to display detailed resume data (only 9 keys, excluding embedding)
 def display_resume_details(resume_id):
@@ -112,8 +112,8 @@ def main():
         st.metric(label="Total Job Descriptions", value=total_jds)
 
     # Number of resumes to fetch
-    st.sidebar.header("Resume Fetch Filter")
-    num_resumes_to_fetch = st.sidebar.number_input(
+    st.header("Resume Fetch Filter")
+    num_resumes_to_fetch = st.slider(
         "Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
     )
 
@@ -136,16 +136,16 @@ def main():
             st.error("Embedding not found for the selected JD.")
         else:
             # Find top matches
-            matches = find_top_matches(jd_embedding, num_candidates=num_resumes_to_fetch, top_matches=5)
+            matches = find_top_matches(jd_embedding, num_candidates=num_resumes_to_fetch)
 
             # Display matches
             if matches:
                 st.subheader("Top Matches")
-                match_df = pd.DataFrame(matches)
+                match_df = pd.DataFrame(matches[:num_resumes_to_fetch])
                 st.dataframe(match_df, use_container_width=True, height=300)
 
                 # Allow user to click on a resume to see details
-                names_to_ids = {match["Name"]: match["Resume ID"] for match in matches}
+                names_to_ids = {match["Name"]: match["Resume ID"] for match in matches[:num_resumes_to_fetch]}
                 selected_name = st.selectbox("Select a Resume to View Details:", list(names_to_ids.keys()))
                 if selected_name:
                     st.subheader("Resume Details")
