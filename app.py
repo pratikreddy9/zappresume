@@ -143,6 +143,13 @@ def main():
                 st.subheader("Top Matches")
                 match_df = pd.DataFrame(matches[:num_resumes_to_fetch])
                 st.dataframe(match_df, use_container_width=True, height=300)
+
+                # Dropdown to select a resume from top matches
+                names_to_ids = {match["Name"]: match["Resume ID"] for match in matches[:num_resumes_to_fetch]}
+                selected_name = st.selectbox("Select a Resume to View Details:", list(names_to_ids.keys()))
+                if selected_name:
+                    st.subheader("Resume Details")
+                    display_resume_details(names_to_ids[selected_name])
             else:
                 st.info("No matching resumes found.")
 
