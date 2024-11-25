@@ -4,7 +4,7 @@ from pymongo import MongoClient
 import requests
 
 # MongoDB connection details
-# This connects to your MongoDB instance using credentials stored in Streamlit secrets.
+# Connecting to the MongoDB Atlas instance using credentials from Streamlit secrets
 mongo_uri = st.secrets["mongo"]["uri"]
 client = MongoClient(mongo_uri)
 
@@ -14,7 +14,7 @@ resume_collection = db["resumes"]  # Collection for resumes
 jd_collection = db["job_description"]  # Collection for job descriptions
 
 # Lambda function URL for processing job descriptions
-# This Lambda function expects both jobId and jobDescription as input.
+# This Lambda function requires both jobId and jobDescription as input to store and generate embeddings.
 lambda_url = "https://ljlj3twvuk.execute-api.ap-south-1.amazonaws.com/default/getJobDescriptionVector"
 
 # Set Streamlit page configuration for a wider layout
@@ -22,6 +22,7 @@ st.set_page_config(layout="wide")
 
 # Load custom CSS for consistent styling
 def load_css():
+    # Custom CSS to style metrics, sections, and tiles
     st.markdown(
         """
         <style>
@@ -93,7 +94,9 @@ def display_resume_details(resume_id):
         st.warning("Resume details not found!")
         return
 
-    # Personal Information
+    # Displaying detailed resume information in a structured format
+    # Includes personal information, education, experiences, skills, and keywords
+
     st.markdown("<div class='section-heading'>Personal Information</div>", unsafe_allow_html=True)
     st.write(f"**Name:** {resume.get('name', 'N/A')}")
     st.write(f"**Email:** {resume.get('email', 'N/A')}")
@@ -160,9 +163,9 @@ def display_resume_details(resume_id):
             st.write("No keywords available.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-# Updated Feature: Add Job Description with Job ID
+# Feature: Add Job Description with Job ID
+# Allows the user to store new JDs by specifying both jobId and jobDescription
 def natural_language_jd_addition():
-    # Heading for this section
     st.markdown("<div class='section-heading'>Add a Job Description</div>", unsafe_allow_html=True)
 
     # Input for Job ID
@@ -200,38 +203,50 @@ def natural_language_jd_addition():
 
 # Main application logic
 def main():
-    # Display metrics at the top of the app
     st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
+
     total_resumes = resume_collection.count_documents({})
     total_jds = jd_collection.count_documents({})
     col1, col2 = st.columns(2)
+
+    # Display metrics for total resumes and JDs
     with col1:
         st.metric(label="Total Resumes", value=total_resumes)
     with col2:
         st.metric(label="Total Job Descriptions", value=total_jds)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Add a new Job Description
+    # Add a new JD
     natural_language_jd_addition()
 
-    # Section for selecting and processing a Job Description
+    # JD Selection Section
     st.markdown("<div class='section-heading'>Selected Job Description</div>", unsafe_allow_html=True)
+
     col1, col2 = st.columns([1, 2])
+
     with col1:
         num_resumes_to_fetch = st.number_input(
             "Enter the Number of Resumes to Fetch", min_value=1, max_value=total_resumes, value=10, step=1
         )
+
     with col2:
         jds = list(jd_collection.find())
-        jd_options = {jd.get("jobId", "N/A"): jd for jd in jds}  # Use jobId for selection
-        selected_jd_id = st.selectbox("Select a Job Description:", list(jd_options.keys()))
+        jd_mapping = {jd.get("jobDescription", "N/A"): jd.get("jobId", "N/A") for jd in jds}
 
-    if jd_options and selected_jd_id:
-        selected_jd = jd_options[selected_jd_id]
+        # Dropdown showing job descriptions instead of job IDs
+        selected_jd_description = st.selectbox("Select a Job Description:", list(jd_mapping.keys()))
+
+    if selected_jd_description:
+        selected_jd_id = jd_mapping[selected_jd_description]
+        selected_jd = next(jd for jd in jds if jd.get("jobId") == selected_jd_id)
+
         st.write(f"**Job Description ID:** {selected_jd_id}")
-        st.write(f"**Job Description:** {selected_jd.get('jobDescription', 'N/A')}")
+        st.write(f"**Job Description:** {selected_jd_description}")
 
         jd_embedding = selected_jd.get("embedding")
+
+        # Find matches if embeddings exist
         if jd_embedding:
             st.subheader("Top Matches")
             matches = find_top_matches(jd_embedding, num_candidates=num_resumes_to_fetch)
@@ -248,17 +263,17 @@ def main():
         else:
             st.error("Embedding not found for the selected JD.")
 
-    # Display all resumes (Previously commented section restored)
+    # Display all resumes
     st.header("All Resumes")
     resumes = resume_collection.find()
     resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name", "N/A")} for resume in resumes]
     resumes_df = pd.DataFrame(resumes_data)
     st.dataframe(resumes_df, use_container_width=True, height=400)
 
-    # Display all Job Descriptions
+    # Display all job descriptions
     st.header("All Job Descriptions")
     jd_data = [
-        {"JD ID": jd.get("jobId"), "Job Description": jd.get("jobDescription", "N/A")}  # Updated to use jobDescription
+        {"JD ID": jd.get("jobId"), "Job Description": jd.get("jobDescription", "N/A")}
         for jd in jds
     ]
     jd_df = pd.DataFrame(jd_data)
