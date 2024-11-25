@@ -4,18 +4,20 @@ from pymongo import MongoClient
 import requests
 
 # MongoDB connection details
+# This connects to your MongoDB instance using credentials stored in Streamlit secrets.
 mongo_uri = st.secrets["mongo"]["uri"]
 client = MongoClient(mongo_uri)
 
-# Access database and collections
+# Accessing the database and collections
 db = client["resumes_database"]
-resume_collection = db["resumes"]
-jd_collection = db["job_description"]
+resume_collection = db["resumes"]  # Collection for resumes
+jd_collection = db["job_description"]  # Collection for job descriptions
 
-# Lambda function URL for JD processing
+# Lambda function URL for processing job descriptions
+# This Lambda function expects both jobId and jobDescription as input.
 lambda_url = "https://ljlj3twvuk.execute-api.ap-south-1.amazonaws.com/default/getJobDescriptionVector"
 
-# Set Streamlit page config for wider layout
+# Set Streamlit page configuration for a wider layout
 st.set_page_config(layout="wide")
 
 # Load custom CSS for consistent styling
@@ -58,20 +60,22 @@ def load_css():
         unsafe_allow_html=True,
     )
 
-# Function to find top matches using embeddings
+# Function to find top matches for a given JD embedding
+# Matches are calculated using cosine similarity
 def find_top_matches(jd_embedding, num_candidates=10):
     results = []
     resumes = resume_collection.find().limit(num_candidates)
 
     for resume in resumes:
         resume_embedding = resume.get("embedding")
-        if not resume_embedding:
+        if not resume_embedding:  # Skip if embedding is missing
             continue
 
+        # Cosine similarity calculation
         similarity_score = sum(
             a * b for a, b in zip(jd_embedding, resume_embedding)
         ) / (sum(a * a for a in jd_embedding) ** 0.5 * sum(b * b for b in resume_embedding) ** 0.5)
-        similarity_score = round(similarity_score * 10, 4)
+        similarity_score = round(similarity_score * 10, 4)  # Scale and round the score
 
         results.append({
             "Resume ID": resume.get("resumeId"),
@@ -79,9 +83,10 @@ def find_top_matches(jd_embedding, num_candidates=10):
             "Similarity Score": similarity_score
         })
 
+    # Return sorted results by similarity score in descending order
     return sorted(results, key=lambda x: x["Similarity Score"], reverse=True)
 
-# Function to display detailed resume data in tiles
+# Function to display detailed resume information
 def display_resume_details(resume_id):
     resume = resume_collection.find_one({"resumeId": resume_id})
     if not resume:
@@ -96,22 +101,28 @@ def display_resume_details(resume_id):
     st.write(f"**Address:** {resume.get('address', 'N/A')}")
     st.markdown("---")
 
-    # Process and Format Data
+    # Educational Qualifications
     edu_qual = [
         f"{eq.get('degree', 'N/A')} in {eq.get('field', 'N/A')} ({eq.get('graduationYear', 'N/A')})"
         for eq in resume.get("educationalQualifications", [])
     ]
+
+    # Job Experiences
     job_exp = [
         f"{je.get('title', 'N/A')} at {je.get('company', 'N/A')} ({je.get('duration', 'N/A')} years)"
         for je in resume.get("jobExperiences", [])
     ]
+
+    # Skills
     skills = [skill.get("skillName", "N/A") for skill in resume.get("skills", [])]
+
+    # Keywords
     keywords = resume.get("keywords", [])
 
-    # Create a 2x2 grid for tiles
+    # Create a 2x2 grid for displaying data
     col1, col2 = st.columns(2)
 
-    # Tile 1: Educational Qualifications
+    # Tile for Educational Qualifications
     with col1:
         st.markdown("<div class='tile'><div class='tile-heading'>Educational Qualifications</div>", unsafe_allow_html=True)
         if edu_qual:
@@ -121,7 +132,7 @@ def display_resume_details(resume_id):
             st.write("No educational qualifications available.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Tile 2: Job Experiences
+    # Tile for Job Experiences
     with col2:
         st.markdown("<div class='tile'><div class='tile-heading'>Job Experiences</div>", unsafe_allow_html=True)
         if job_exp:
@@ -131,7 +142,7 @@ def display_resume_details(resume_id):
             st.write("No job experiences available.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Tile 3: Skills
+    # Tile for Skills
     with col1:
         st.markdown("<div class='tile'><div class='tile-heading'>Skills</div>", unsafe_allow_html=True)
         if skills:
@@ -140,7 +151,7 @@ def display_resume_details(resume_id):
             st.write("No skills available.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Tile 4: Keywords
+    # Tile for Keywords
     with col2:
         st.markdown("<div class='tile'><div class='tile-heading'>Keywords</div>", unsafe_allow_html=True)
         if keywords:
@@ -149,29 +160,47 @@ def display_resume_details(resume_id):
             st.write("No keywords available.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-# New Feature: Natural Language JD Addition
+# Updated Feature: Add Job Description with Job ID
 def natural_language_jd_addition():
+    # Heading for this section
     st.markdown("<div class='section-heading'>Add a Job Description</div>", unsafe_allow_html=True)
+
+    # Input for Job ID
+    jd_id_input = st.text_input("Enter Job ID", placeholder="e.g., 1234abcd-5678-efgh-9101-ijklmnopqrs")
+
+    # Input for Job Description
     jd_input = st.text_area("Paste a Job Description (JD) in natural language:")
+
+    # Button to store the JD
     if st.button("Store Job Description"):
+        # Validate inputs
+        if not jd_id_input.strip():
+            st.error("Please provide a valid Job ID.")
+            return
         if not jd_input.strip():
             st.error("Please provide a valid Job Description.")
             return
+
+        # Prepare payload for Lambda function
+        payload = {
+            "jobId": jd_id_input.strip(),
+            "jobDescription": jd_input.strip()
+        }
+
         try:
-            # Post JD to Lambda function
-            response = requests.post(lambda_url, json={"jobDescription": jd_input})
+            # Send POST request to Lambda function
+            response = requests.post(lambda_url, json=payload)
             if response.status_code == 200:
                 lambda_response = response.json()
-                jd_id = lambda_response.get("jobId")  # Update to use "jobId"
-                st.success(f"Job Description stored successfully! Job Description ID: {jd_id}")
+                st.success(f"Job Description stored successfully! Job ID: {jd_id_input}")
             else:
                 st.error(f"Lambda error: {response.json()}")
         except Exception as e:
             st.error(f"Error: {e}")
 
-# Main app functionality
+# Main application logic
 def main():
-    # Display metrics at the top
+    # Display metrics at the top of the app
     st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
     total_resumes = resume_collection.count_documents({})
     total_jds = jd_collection.count_documents({})
@@ -182,10 +211,10 @@ def main():
         st.metric(label="Total Job Descriptions", value=total_jds)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Add a JD
+    # Add a new Job Description
     natural_language_jd_addition()
 
-    # Original Selected JD Workflow
+    # Section for selecting and processing a Job Description
     st.markdown("<div class='section-heading'>Selected Job Description</div>", unsafe_allow_html=True)
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -194,13 +223,13 @@ def main():
         )
     with col2:
         jds = list(jd_collection.find())
-        jd_options = {jd.get("jobId", "N/A"): jd for jd in jds}  # Updated to use "jobId"
+        jd_options = {jd.get("jobId", "N/A"): jd for jd in jds}  # Use jobId for selection
         selected_jd_id = st.selectbox("Select a Job Description:", list(jd_options.keys()))
 
     if jd_options and selected_jd_id:
         selected_jd = jd_options[selected_jd_id]
         st.write(f"**Job Description ID:** {selected_jd_id}")
-        st.write(f"**Query:** {selected_jd.get('query', 'N/A')}")
+        st.write(f"**Job Description:** {selected_jd.get('jobDescription', 'N/A')}")
 
         jd_embedding = selected_jd.get("embedding")
         if jd_embedding:
@@ -219,15 +248,19 @@ def main():
         else:
             st.error("Embedding not found for the selected JD.")
 
-    # Commented Resumes Table
-    # st.header("All Resumes")
-    # resumes = resume_collection.find()
-    # resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name")} for resume in resumes]
-    # resumes_df = pd.DataFrame(resumes_data)
-    # st.dataframe(resumes_df, use_container_width=True, height=400)
+    # Display all resumes (Previously commented section restored)
+    st.header("All Resumes")
+    resumes = resume_collection.find()
+    resumes_data = [{"Resume ID": resume.get("resumeId"), "Name": resume.get("name", "N/A")} for resume in resumes]
+    resumes_df = pd.DataFrame(resumes_data)
+    st.dataframe(resumes_df, use_container_width=True, height=400)
 
+    # Display all Job Descriptions
     st.header("All Job Descriptions")
-    jd_data = [{"JD ID": jd.get("jobId"), "Query": jd.get("query", "N/A")} for jd in jds]  # Updated to use "jobId"
+    jd_data = [
+        {"JD ID": jd.get("jobId"), "Job Description": jd.get("jobDescription", "N/A")}  # Updated to use jobDescription
+        for jd in jds
+    ]
     jd_df = pd.DataFrame(jd_data)
     st.dataframe(jd_df, use_container_width=True, height=200)
 
