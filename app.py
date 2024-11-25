@@ -66,6 +66,7 @@ def find_top_matches(jd_embedding, num_candidates=10):
         "$vectorSearch": {
             "queryVector": jd_embedding,  # The JD embedding to match against
             "path": "embedding",          # The field indexed for vector search
+            "numCandidates": num_candidates,  # Number of nearest neighbors to consider
             "limit": num_candidates,      # Number of top matches to return
             "index": "vector_index"       # Name of the Atlas Vector Search index
         }
@@ -87,6 +88,7 @@ def find_top_matches(jd_embedding, num_candidates=10):
     except Exception as e:
         st.error(f"Error during vector search: {e}")
         return []
+
 
 
 # Function to display detailed resume information
