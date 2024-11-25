@@ -61,31 +61,32 @@ def load_css():
         unsafe_allow_html=True,
     )
 
-# Function to find top matches for a given JD embedding
-# Matches are calculated using cosine similarity
 def find_top_matches(jd_embedding, num_candidates=10):
-    results = []
-    resumes = resume_collection.find().limit(num_candidates)
+    query = {
+        "$vectorSearch": {
+            "queryVector": jd_embedding,  # The JD embedding to match against
+            "field": "embedding",         # The field indexed for vector search
+            "k": num_candidates           # Number of top matches to return
+        }
+    }
+    try:
+        # Use MongoDB's vector search via aggregation pipeline
+        results = list(resume_collection.aggregate([{"$search": query}]))
+        
+        # Format the results into a list of dictionaries
+        formatted_results = [
+            {
+                "Resume ID": result.get("resumeId"),
+                "Name": result.get("name", "N/A"),
+                "Similarity Score": round(result["score"], 4)  # Score is returned by MongoDB
+            }
+            for result in results
+        ]
+        return formatted_results
+    except Exception as e:
+        st.error(f"Error during vector search: {e}")
+        return []
 
-    for resume in resumes:
-        resume_embedding = resume.get("embedding")
-        if not resume_embedding:  # Skip if embedding is missing
-            continue
-
-        # Cosine similarity calculation
-        similarity_score = sum(
-            a * b for a, b in zip(jd_embedding, resume_embedding)
-        ) / (sum(a * a for a in jd_embedding) ** 0.5 * sum(b * b for b in resume_embedding) ** 0.5)
-        similarity_score = round(similarity_score * 10, 4)  # Scale and round the score
-
-        results.append({
-            "Resume ID": resume.get("resumeId"),
-            "Name": resume.get("name"),
-            "Similarity Score": similarity_score
-        })
-
-    # Return sorted results by similarity score in descending order
-    return sorted(results, key=lambda x: x["Similarity Score"], reverse=True)
 
 # Function to display detailed resume information
 def display_resume_details(resume_id):
