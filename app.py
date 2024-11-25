@@ -162,7 +162,7 @@ def natural_language_jd_addition():
             response = requests.post(lambda_url, json={"jobDescription": jd_input})
             if response.status_code == 200:
                 lambda_response = response.json()
-                jd_id = lambda_response.get("jobDescriptionId")
+                jd_id = lambda_response.get("jobId")  # Update to use "jobId"
                 st.success(f"Job Description stored successfully! Job Description ID: {jd_id}")
             else:
                 st.error(f"Lambda error: {response.json()}")
@@ -194,7 +194,7 @@ def main():
         )
     with col2:
         jds = list(jd_collection.find())
-        jd_options = {jd.get("jobDescriptionId", "N/A"): jd for jd in jds}
+        jd_options = {jd.get("jobId", "N/A"): jd for jd in jds}  # Updated to use "jobId"
         selected_jd_id = st.selectbox("Select a Job Description:", list(jd_options.keys()))
 
     if jd_options and selected_jd_id:
@@ -227,7 +227,7 @@ def main():
     # st.dataframe(resumes_df, use_container_width=True, height=400)
 
     st.header("All Job Descriptions")
-    jd_data = [{"JD ID": jd.get("jobDescriptionId"), "Query": jd.get("query", "N/A")} for jd in jds]
+    jd_data = [{"JD ID": jd.get("jobId"), "Query": jd.get("query", "N/A")} for jd in jds]  # Updated to use "jobId"
     jd_df = pd.DataFrame(jd_data)
     st.dataframe(jd_df, use_container_width=True, height=200)
 
