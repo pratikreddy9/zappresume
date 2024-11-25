@@ -65,13 +65,14 @@ def find_top_matches(jd_embedding, num_candidates=10):
     query = {
         "$vectorSearch": {
             "queryVector": jd_embedding,  # The JD embedding to match against
-            "field": "embedding",         # The field indexed for vector search
-            "k": num_candidates           # Number of top matches to return
+            "path": "embedding",          # The field indexed for vector search
+            "limit": num_candidates,      # Number of top matches to return
+            "index": "vector_index"       # Name of the Atlas Vector Search index
         }
     }
     try:
         # Use MongoDB's vector search via aggregation pipeline
-        results = list(resume_collection.aggregate([{"$search": query}]))
+        results = list(resume_collection.aggregate([query]))
         
         # Format the results into a list of dictionaries
         formatted_results = [
