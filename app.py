@@ -216,6 +216,7 @@ def main():
 
     with col2:
         jds = list(jd_collection.find())
+        jds.reverse()  # Reverse the list of job descriptions
         jd_mapping = {jd.get("jobDescription", "N/A"): jd.get("jobId", "N/A") for jd in jds}
         selected_jd_description = st.selectbox("Select a Job Description:", list(jd_mapping.keys()))
 
