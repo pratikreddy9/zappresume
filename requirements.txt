@@ -1,1 +1,8 @@
 pymongo
+streamlit
+pandas
+numpy
+requests
+openai
+rapidfuzz
+nltk
