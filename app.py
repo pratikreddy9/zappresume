@@ -81,7 +81,7 @@ def find_duplicate_resumes():
     
     return total_duplicates
 
-def find_keyword_matches(jd_keywords, num_candidates=50):
+def find_keyword_matches(jd_keywords, num_candidates=500):
     """Match resumes to job descriptions using keywords."""
     results = []
     seen_keys = set()
@@ -141,7 +141,7 @@ def find_keyword_matches(jd_keywords, num_candidates=50):
 
     return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
 
-def find_top_matches(jd_embedding, num_candidates=50):
+def find_top_matches(jd_embedding, num_candidates=500):
     """Find top matches using vector similarity."""
     results = []
     seen_keys = set()
