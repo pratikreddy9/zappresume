@@ -57,78 +57,51 @@ def fuzzy_match(keyword, target_keywords, threshold=80):
     """Perform fuzzy matching with a similarity threshold."""
     return any(fuzz.ratio(keyword, tk) >= threshold for tk in target_keywords)
 
-# Commented out find_keyword_matches function
-# def find_keyword_matches(jd_keywords, num_candidates=15000):
-#     """Match resumes to job descriptions using keywords."""
-#     results = []
-#     seen_keys = set()
-#     resumes = resume_collection.find().limit(num_candidates * 2)  # Fetch more to account for duplicates
+def find_duplicate_resumes():
+    """Find duplicate resumes based on email and phone number."""
+    duplicates = {}
+    all_resumes = list(resume_collection.find())
+    
+    # Group resumes by email and phone
+    for resume in all_resumes:
+        email = resume.get('email')
+        phone = resume.get('contactNo')
+        
+        # Create a key only if either email or phone is not None
+        if email or phone:
+            key = f"{email}_{phone}"
+            if key in duplicates:
+                duplicates[key].append(resume)
+            else:
+                duplicates[key] = [resume]
+    
+    # Filter out non-duplicates
+    duplicate_groups = {k: v for k, v in duplicates.items() if len(v) > 1}
+    total_duplicates = sum(len(group) - 1 for group in duplicate_groups.values())
+    
+    return total_duplicates
 
-#     jd_keywords_normalized = [preprocess_keyword(keyword) for keyword in jd_keywords]
+def find_keyword_matches(jd_keywords, num_candidates=15000):
+    """Match resumes to job descriptions using keywords."""
+    results = []
+    seen_keys = set()
+    resumes = resume_collection.find().limit(num_candidates * 2)  # Fetch more to account for duplicates
 
-#     for resume in resumes:
-#         # Create a unique key based on email and phone
-#         key = f"{resume.get('email')}_{resume.get('contactNo')}"
-#         
-#         # Skip if we've already seen this combination
-#         if key in seen_keys:
-#             continue
-#         seen_keys.add(key)
-
-#         resume_keywords = resume.get("keywords") or []
-#         if not resume_keywords:
-#             continue
-
-#         resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume_keywords]
-
-#         matching_keywords = [
-#             keyword for keyword in jd_keywords_normalized
-#             if any(preprocess_keyword(keyword) == rk or fuzzy_match(keyword, [rk]) for rk in resume_keywords_normalized)
-#         ]
-
-#         match_count = len(matching_keywords)
-#         total_keywords = len(jd_keywords_normalized)
-#         if total_keywords == 0:
-#             continue
-#         match_percentage = round((match_count / total_keywords) * 100, 2)
-
-#         # Add new fields for the table
-#         skills = ", ".join(resume_keywords)
-#         job_experiences = [
-#             f"{job.get('title', 'N/A')} at {job.get('companyName', 'N/A')}" 
-#             for job in resume.get("jobExperiences") or []
-#         ]
-#         educational_qualifications = [
-#             f"{edu.get('degree', 'N/A')} in {edu.get('field', 'N/A')}" 
-#             for edu in resume.get("educationalQualifications") or []
-#         ]
-
-#         results.append({
-#             "Resume ID": resume.get("resumeId"),
-#             "Name": resume.get("name", "N/A"),
-#             "Match Percentage (Keywords)": match_percentage,
-#             "Matching Keywords": matching_keywords,
-#             "Skills": skills,
-#             "Job Experiences": "; ".join(job_experiences),
-#             "Educational Qualifications": "; ".join(educational_qualifications),
-#         })
-
-#         if len(results) >= num_candidates:
-#             break
-
-#     return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
-
-def find_keywords_for_vector_matches(jd_keywords, vector_matches):
-    """Extract and display matched keywords for vector similarity matches."""
     jd_keywords_normalized = [preprocess_keyword(keyword) for keyword in jd_keywords]
 
-    for match in vector_matches:
-        resume_id = match["Resume ID"]
-        resume = resume_collection.find_one({"resumeId": resume_id})
-        if not resume:
+    for resume in resumes:
+        # Create a unique key based on email and phone
+        key = f"{resume.get('email')}_{resume.get('contactNo')}"
+        
+        # Skip if we've already seen this combination
+        if key in seen_keys:
             continue
+        seen_keys.add(key)
 
         resume_keywords = resume.get("keywords") or []
+        if not resume_keywords:
+            continue
+
         resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume_keywords]
 
         matching_keywords = [
@@ -136,11 +109,39 @@ def find_keywords_for_vector_matches(jd_keywords, vector_matches):
             if any(preprocess_keyword(keyword) == rk or fuzzy_match(keyword, [rk]) for rk in resume_keywords_normalized)
         ]
 
-        match["Matching Keywords"] = matching_keywords
+        match_count = len(matching_keywords)
+        total_keywords = len(jd_keywords_normalized)
+        if total_keywords == 0:
+            continue
+        match_percentage = round((match_count / total_keywords) * 100, 2)
 
-    return vector_matches
+        # Add new fields for the table
+        skills = ", ".join(resume_keywords)
+        job_experiences = [
+            f"{job.get('title', 'N/A')} at {job.get('companyName', 'N/A')}" 
+            for job in resume.get("jobExperiences") or []
+        ]
+        educational_qualifications = [
+            f"{edu.get('degree', 'N/A')} in {edu.get('field', 'N/A')}" 
+            for edu in resume.get("educationalQualifications") or []
+        ]
 
-def find_top_matches(jd_embedding, num_candidates=11860):
+        results.append({
+            "Resume ID": resume.get("resumeId"),
+            "Name": resume.get("name", "N/A"),
+            "Match Percentage (Keywords)": match_percentage,
+            "Matching Keywords": matching_keywords,
+            "Skills": skills,
+            "Job Experiences": "; ".join(job_experiences),
+            "Educational Qualifications": "; ".join(educational_qualifications),
+        })
+
+        if len(results) >= num_candidates:
+            break
+
+    return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
+
+def find_top_matches(jd_embedding, num_candidates=15000):
     """Find top matches using vector similarity."""
     results = []
     seen_keys = set()
@@ -193,6 +194,19 @@ def find_top_matches(jd_embedding, num_candidates=11860):
 
     return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)
 
+def display_resume_details(resume_id):
+    resume = resume_collection.find_one({"resumeId": resume_id})
+    if not resume:
+        st.warning("Resume details not found!")
+        return
+
+    st.markdown("<div class='section-heading'>Personal Information</div>", unsafe_allow_html=True)
+    st.write(f"**Name:** {resume.get('name', 'N/A')}")
+    st.write(f"**Email:** {resume.get('email', 'N/A')}")
+    st.write(f"**Contact No:** {resume.get('contactNo', 'N/A')}")
+    st.write(f"**Address:** {resume.get('address', 'N/A')}")
+    st.markdown("---")
+
 def main():
     st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
 
@@ -221,14 +235,19 @@ def main():
         st.write(f"**Job Description ID:** {selected_jd_id}")
         st.write(f"**Job Description:** {selected_jd_description}")
 
+        st.subheader("Top Matches (Keywords)")
+        keyword_matches = find_keyword_matches(jd_keywords)
+        if keyword_matches:
+            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
+            st.dataframe(keyword_match_df, use_container_width=True, height=300)
+        else:
+            st.info("No matching resumes found.")
+
         if jd_embedding:
             st.subheader("Top Matches (Vector Similarity)")
             vector_matches = find_top_matches(jd_embedding)
             if vector_matches:
-                # Get keyword matches for vector matches
-                vector_matches_with_keywords = find_keywords_for_vector_matches(jd_keywords, vector_matches)
-
-                vector_match_df = pd.DataFrame(vector_matches_with_keywords).astype(str)
+                vector_match_df = pd.DataFrame(vector_matches).astype(str)
                 st.dataframe(vector_match_df, use_container_width=True, height=300)
             else:
                 st.info("No matching resumes found.")
