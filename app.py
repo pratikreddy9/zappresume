@@ -140,7 +140,7 @@ def find_keywords_for_vector_matches(jd_keywords, vector_matches):
 
     return vector_matches
 
-def find_top_matches(jd_embedding, num_candidates=15000):
+def find_top_matches(jd_embedding, num_candidates=11860):
     """Find top matches using vector similarity."""
     results = []
     seen_keys = set()
