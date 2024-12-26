@@ -207,6 +207,8 @@ def display_resume_details(resume_id):
     st.write(f"**Address:** {resume.get('address', 'N/A')}")
     st.markdown("---")
 
+
+
 def main():
     st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
 
@@ -235,14 +237,7 @@ def main():
         st.write(f"**Job Description ID:** {selected_jd_id}")
         st.write(f"**Job Description:** {selected_jd_description}")
 
-        st.subheader("Top Matches (Keywords)")
-        keyword_matches = find_keyword_matches(jd_keywords)
-        if keyword_matches:
-            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
-            st.dataframe(keyword_match_df, use_container_width=True, height=300)
-        else:
-            st.info("No matching resumes found.")
-
+        # First display vector similarity matches
         if jd_embedding:
             st.subheader("Top Matches (Vector Similarity)")
             vector_matches = find_top_matches(jd_embedding)
@@ -253,6 +248,15 @@ def main():
                 st.info("No matching resumes found.")
         else:
             st.error("Embedding not found for the selected JD.")
+
+        # Then display keyword matches
+        st.subheader("Top Matches (Keywords)")
+        keyword_matches = find_keyword_matches(jd_keywords)
+        if keyword_matches:
+            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
+            st.dataframe(keyword_match_df, use_container_width=True, height=300)
+        else:
+            st.info("No matching resumes found.")
 
 if __name__ == "__main__":
     load_css()
