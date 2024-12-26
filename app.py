@@ -5,6 +5,9 @@ import requests
 import re
 from rapidfuzz import fuzz
 import os
+from multiprocessing import Pool, cpu_count
+from functools import partial
+import numpy as np
 
 # Disable Streamlit's file watcher to avoid inotify limit issues
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
@@ -15,16 +18,15 @@ client = MongoClient(mongo_uri)
 
 # Accessing the database and collections
 db = client["resumes_database"]
-resume_collection = db["resumes"]  # Collection for resumes
-jd_collection = db["job_description"]  # Collection for job descriptions
+resume_collection = db["resumes"]
+jd_collection = db["job_description"]
 
 # Lambda function URL for processing job descriptions
 lambda_url = "https://ljlj3twvuk.execute-api.ap-south-1.amazonaws.com/default/getJobDescriptionVector"
 
-# Set Streamlit page configuration for a wider layout
+# Set Streamlit page configuration
 st.set_page_config(layout="wide")
 
-# Load custom CSS for consistent styling
 def load_css():
     st.markdown(
         """
@@ -57,119 +59,49 @@ def fuzzy_match(keyword, target_keywords, threshold=80):
     """Perform fuzzy matching with a similarity threshold."""
     return any(fuzz.ratio(keyword, tk) >= threshold for tk in target_keywords)
 
-def find_duplicate_resumes():
-    """Find duplicate resumes based on email and phone number."""
-    duplicates = {}
-    all_resumes = list(resume_collection.find())
+def calculate_vector_similarity(resume_embedding, jd_embedding):
+    """Calculate cosine similarity between two vectors."""
+    if not resume_embedding or not jd_embedding:
+        return 0
     
-    # Group resumes by email and phone
-    for resume in all_resumes:
-        email = resume.get('email')
-        phone = resume.get('contactNo')
+    dot_product = np.dot(resume_embedding, jd_embedding)
+    magnitude_resume = np.linalg.norm(resume_embedding)
+    magnitude_jd = np.linalg.norm(jd_embedding)
+    
+    if magnitude_resume == 0 or magnitude_jd == 0:
+        return 0
         
-        # Create a key only if either email or phone is not None
-        if email or phone:
-            key = f"{email}_{phone}"
-            if key in duplicates:
-                duplicates[key].append(resume)
-            else:
-                duplicates[key] = [resume]
-    
-    # Filter out non-duplicates
-    duplicate_groups = {k: v for k, v in duplicates.items() if len(v) > 1}
-    total_duplicates = sum(len(group) - 1 for group in duplicate_groups.values())
-    
-    return total_duplicates
+    return dot_product / (magnitude_resume * magnitude_jd)
 
-def find_keyword_matches(jd_keywords, num_candidates=15000):
-    """Match resumes to job descriptions using keywords."""
+def process_resume_batch(args):
+    """Process a batch of resumes with both keyword and vector matching."""
+    batch, jd_keywords, jd_embedding = args
     results = []
-    seen_keys = set()
-    resumes = resume_collection.find().limit(num_candidates * 2)  # Fetch more to account for duplicates
-
+    
     jd_keywords_normalized = [preprocess_keyword(keyword) for keyword in jd_keywords]
-
-    for resume in resumes:
-        # Create a unique key based on email and phone
-        key = f"{resume.get('email')}_{resume.get('contactNo')}"
-        
-        # Skip if we've already seen this combination
-        if key in seen_keys:
+    
+    for resume in batch:
+        # Skip if no keywords or embedding
+        if not resume.get("keywords") or not resume.get("embedding"):
             continue
-        seen_keys.add(key)
-
-        resume_keywords = resume.get("keywords") or []
-        if not resume_keywords:
-            continue
-
-        resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume_keywords]
-
+            
+        # Calculate keyword match
+        resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume.get("keywords", [])]
         matching_keywords = [
             keyword for keyword in jd_keywords_normalized
             if any(preprocess_keyword(keyword) == rk or fuzzy_match(keyword, [rk]) for rk in resume_keywords_normalized)
         ]
-
-        match_count = len(matching_keywords)
-        total_keywords = len(jd_keywords_normalized)
-        if total_keywords == 0:
-            continue
-        match_percentage = round((match_count / total_keywords) * 100, 2)
-
-        # Add new fields for the table
-        skills = ", ".join(resume_keywords)
-        job_experiences = [
-            f"{job.get('title', 'N/A')} at {job.get('companyName', 'N/A')}" 
-            for job in resume.get("jobExperiences") or []
-        ]
-        educational_qualifications = [
-            f"{edu.get('degree', 'N/A')} in {edu.get('field', 'N/A')}" 
-            for edu in resume.get("educationalQualifications") or []
-        ]
-
-        results.append({
-            "Resume ID": resume.get("resumeId"),
-            "Name": resume.get("name", "N/A"),
-            "Match Percentage (Keywords)": match_percentage,
-            "Matching Keywords": matching_keywords,
-            "Skills": skills,
-            "Job Experiences": "; ".join(job_experiences),
-            "Educational Qualifications": "; ".join(educational_qualifications),
-        })
-
-        if len(results) >= num_candidates:
-            break
-
-    return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
-
-def find_top_matches(jd_embedding, num_candidates=15000):
-    """Find top matches using vector similarity."""
-    results = []
-    seen_keys = set()
-    resumes = resume_collection.find().limit(num_candidates * 2)
-
-    for resume in resumes:
-        # Create a unique key based on email and phone
-        key = f"{resume.get('email')}_{resume.get('contactNo')}"
         
-        # Skip if we've already seen this combination
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-
-        resume_embedding = resume.get("embedding")
-        if not resume_embedding:
-            continue
-
-        dot_product = sum(a * b for a, b in zip(jd_embedding, resume_embedding))
-        magnitude_jd = sum(a * a for a in jd_embedding) ** 0.5
-        magnitude_resume = sum(b * b for b in resume_embedding) ** 0.5
-        if magnitude_jd == 0 or magnitude_resume == 0:
-            continue
-        similarity_score = dot_product / (magnitude_jd * magnitude_resume)
-
-        match_percentage = round(similarity_score * 100, 2)
-
-        # Add new fields for the table
+        keyword_match_percentage = round((len(matching_keywords) / len(jd_keywords_normalized) * 100), 2) if jd_keywords_normalized else 0
+        
+        # Calculate vector similarity
+        vector_similarity = calculate_vector_similarity(resume.get("embedding"), jd_embedding)
+        vector_match_percentage = round(vector_similarity * 100, 2)
+        
+        # Combined score (weighted average)
+        combined_score = (keyword_match_percentage * 0.4) + (vector_match_percentage * 0.6)
+        
+        # Prepare result data
         skills = ", ".join(resume.get("keywords") or [])
         job_experiences = [
             f"{job.get('title', 'N/A')} at {job.get('companyName', 'N/A')}" 
@@ -179,35 +111,52 @@ def find_top_matches(jd_embedding, num_candidates=15000):
             f"{edu.get('degree', 'N/A')} in {edu.get('field', 'N/A')}" 
             for edu in resume.get("educationalQualifications") or []
         ]
-
+        
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
-            "Match Percentage (Vector)": match_percentage,
+            "Keyword Match %": keyword_match_percentage,
+            "Vector Match %": vector_match_percentage,
+            "Combined Score": combined_score,
+            "Matching Keywords": matching_keywords,
             "Skills": skills,
             "Job Experiences": "; ".join(job_experiences),
             "Educational Qualifications": "; ".join(educational_qualifications),
         })
+    
+    return results
 
-        if len(results) >= num_candidates:
-            break
-
-    return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)
-
-def display_resume_details(resume_id):
-    resume = resume_collection.find_one({"resumeId": resume_id})
-    if not resume:
-        st.warning("Resume details not found!")
-        return
-
-    st.markdown("<div class='section-heading'>Personal Information</div>", unsafe_allow_html=True)
-    st.write(f"**Name:** {resume.get('name', 'N/A')}")
-    st.write(f"**Email:** {resume.get('email', 'N/A')}")
-    st.write(f"**Contact No:** {resume.get('contactNo', 'N/A')}")
-    st.write(f"**Address:** {resume.get('address', 'N/A')}")
-    st.markdown("---")
-
-
+def find_matches(jd_keywords, jd_embedding, num_candidates=15000):
+    """Find matches using parallel processing for both keyword and vector matching."""
+    # Get all resumes
+    resumes = list(resume_collection.find().limit(num_candidates * 2))
+    
+    # Remove duplicates based on email and phone
+    seen_keys = set()
+    unique_resumes = []
+    for resume in resumes:
+        key = f"{resume.get('email')}_{resume.get('contactNo')}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            unique_resumes.append(resume)
+            if len(unique_resumes) >= num_candidates:
+                break
+    
+    # Split resumes into batches for parallel processing
+    num_processes = cpu_count()
+    batch_size = max(1, len(unique_resumes) // num_processes)
+    batches = [unique_resumes[i:i + batch_size] for i in range(0, len(unique_resumes), batch_size)]
+    
+    # Prepare arguments for parallel processing
+    process_args = [(batch, jd_keywords, jd_embedding) for batch in batches]
+    
+    # Process batches in parallel
+    with Pool(processes=num_processes) as pool:
+        results = pool.map(process_resume_batch, process_args)
+    
+    # Combine and sort results
+    all_results = [item for sublist in results for item in sublist]
+    return sorted(all_results, key=lambda x: x["Combined Score"], reverse=True)
 
 def main():
     st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
@@ -234,27 +183,20 @@ def main():
         jd_keywords = selected_jd.get("structured_query", {}).get("keywords", [])
         jd_embedding = selected_jd.get("embedding")
 
+        if not jd_embedding:
+            st.error("Embedding not found for the selected JD.")
+            return
+
         st.write(f"**Job Description ID:** {selected_jd_id}")
         st.write(f"**Job Description:** {selected_jd_description}")
 
-        # First display vector similarity matches
-        if jd_embedding:
-            st.subheader("Top Matches (Vector Similarity)")
-            vector_matches = find_top_matches(jd_embedding)
-            if vector_matches:
-                vector_match_df = pd.DataFrame(vector_matches).astype(str)
-                st.dataframe(vector_match_df, use_container_width=True, height=300)
-            else:
-                st.info("No matching resumes found.")
-        else:
-            st.error("Embedding not found for the selected JD.")
-
-        # Then display keyword matches
-        st.subheader("Top Matches (Keywords)")
-        keyword_matches = find_keyword_matches(jd_keywords)
-        if keyword_matches:
-            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
-            st.dataframe(keyword_match_df, use_container_width=True, height=300)
+        # Find matches using combined approach
+        matches = find_matches(jd_keywords, jd_embedding)
+        
+        if matches:
+            st.subheader("Top Matches (Combined Scoring)")
+            matches_df = pd.DataFrame(matches).astype(str)
+            st.dataframe(matches_df, use_container_width=True, height=500)
         else:
             st.info("No matching resumes found.")
 
