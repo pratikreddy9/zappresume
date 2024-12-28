@@ -86,12 +86,12 @@ def find_top_matches(jd_embedding, jd_keywords, max_results):
         keyword_score = len(matching_keywords) / len(jd_keywords) if jd_keywords else 0
 
         # Calculate the relative final score
-        final_score = round((similarity_score * 40) + (keyword_score * 60), 2)  # 60% weight to keywords
+        job_suitability_score = round((similarity_score * 40) + (keyword_score * 60), 2)  # 60% weight to keywords
 
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
-            "Final Score": final_score,
+            "Job Suitability": final_score,
             "Matching Keywords": matching_keywords,
         })
 
