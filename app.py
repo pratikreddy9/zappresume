@@ -91,17 +91,17 @@ def find_top_matches(jd_embedding, jd_keywords, max_results):
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
-            "Job Suitability": final_score,
+            "Job Suitability": job_suitability_score,
             "Matching Keywords": matching_keywords,
         })
 
     # Normalize the final scores to start from 100% (relative grading)
-    max_score = max(result["Final Score"] for result in results) if results else 1
+    max_score = max(result["Job Suitability"] for result in results) if results else 1
     for result in results:
-        result["Final Score"] = round((result["Final Score"] / max_score) * 100, 2)
+        result["Job Suitability"] = round((result["Job Suitability"] / max_score) * 100, 2)
 
     # Sort results by final score and limit to max_results
-    return sorted(results, key=lambda x: x["Final Score"], reverse=True)[:max_results]
+    return sorted(results, key=lambda x: x["Job Suitability"], reverse=True)[:max_results]
 
 def main():
     load_css()
