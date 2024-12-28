@@ -6,3 +6,4 @@ requests
 openai
 rapidfuzz
 nltk
+scipy
