@@ -68,7 +68,7 @@ def find_matching_keywords(jd_keywords, resume_keywords):
 def find_top_matches(jd_embedding, jd_keywords, max_results):
     """
     Find top matches using vector similarity and include matching keywords.
-    Combine scores from vector similarity and keyword matches to create a final score.
+    Combine scores from vector similarity and keyword matches to create a relative final score.
     """
     total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
     results = []
@@ -80,22 +80,25 @@ def find_top_matches(jd_embedding, jd_keywords, max_results):
             continue
 
         similarity_score = 1 - cosine(jd_embedding, resume_embedding)
-        vector_score = round(similarity_score * 100, 2)
 
         resume_keywords = resume.get("keywords", [])
         matching_keywords = find_matching_keywords(jd_keywords, resume_keywords)
-        keyword_score = len(matching_keywords) / len(jd_keywords) * 100 if jd_keywords else 0
+        keyword_score = len(matching_keywords) / len(jd_keywords) if jd_keywords else 0
 
-        final_score = round((vector_score * 0.7) + (keyword_score * 0.3), 2)  # Weighted score
+        # Calculate the relative final score
+        final_score = round((similarity_score * 40) + (keyword_score * 60), 2)  # 60% weight to keywords
 
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
-            "Vector Score": vector_score,
-            "Keyword Score": keyword_score,
             "Final Score": final_score,
             "Matching Keywords": matching_keywords,
         })
+
+    # Normalize the final scores to start from 100% (relative grading)
+    max_score = max(result["Final Score"] for result in results) if results else 1
+    for result in results:
+        result["Final Score"] = round((result["Final Score"] / max_score) * 100, 2)
 
     # Sort results by final score and limit to max_results
     return sorted(results, key=lambda x: x["Final Score"], reverse=True)[:max_results]
