@@ -61,7 +61,7 @@ def preprocess_keyword(keyword):
 def fuzzy_match(keyword, target_keywords, threshold=80):
     return any(fuzz.ratio(keyword, tk) >= threshold for tk in target_keywords)
 
-def find_keyword_matches(jd_keywords, max_results):
+def find_keyword_matches(jd_keywords):
     """
     Match resumes to job descriptions using keywords.
     """
@@ -100,12 +100,9 @@ def find_keyword_matches(jd_keywords, max_results):
             "Matching Keywords": matching_keywords,
         })
 
-        if len(results) >= max_results:
-            break
-
     return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
 
-def find_top_matches(jd_embedding, max_results):
+def find_top_matches(jd_embedding):
     """
     Find top matches using vector similarity.
     """
@@ -132,9 +129,6 @@ def find_top_matches(jd_embedding, max_results):
             "Name": resume.get("name", "N/A"),
             "Match Percentage (Vector)": match_percentage,
         })
-
-        if len(results) >= max_results:
-            break
 
     return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)
 
@@ -179,18 +173,18 @@ def main():
         st.write(f"**Job Description:** {selected_jd_description}")
 
         st.subheader("Top Matches (Keywords)")
-        keyword_matches = find_keyword_matches(jd_keywords, max_results)
+        keyword_matches = find_keyword_matches(jd_keywords)
         if keyword_matches:
-            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
+            keyword_match_df = pd.DataFrame(keyword_matches[:max_results]).astype(str)
             st.dataframe(keyword_match_df, use_container_width=True, height=300)
         else:
             st.info("No matching resumes found.")
 
         if jd_embedding:
             st.subheader("Top Matches (Vector Similarity)")
-            vector_matches = find_top_matches(jd_embedding, max_results)
+            vector_matches = find_top_matches(jd_embedding)
             if vector_matches:
-                vector_match_df = pd.DataFrame(vector_matches).astype(str)
+                vector_match_df = pd.DataFrame(vector_matches[:max_results]).astype(str)
                 st.dataframe(vector_match_df, use_container_width=True, height=300)
             else:
                 st.info("No matching resumes found.")
