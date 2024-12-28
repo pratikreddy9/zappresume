@@ -68,6 +68,7 @@ def find_matching_keywords(jd_keywords, resume_keywords):
 def find_top_matches(jd_embedding, jd_keywords, max_results):
     """
     Find top matches using vector similarity and include matching keywords.
+    Combine scores from vector similarity and keyword matches to create a final score.
     """
     total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
     results = []
@@ -79,20 +80,25 @@ def find_top_matches(jd_embedding, jd_keywords, max_results):
             continue
 
         similarity_score = 1 - cosine(jd_embedding, resume_embedding)
-        match_percentage = round(similarity_score * 100, 2)
+        vector_score = round(similarity_score * 100, 2)
 
         resume_keywords = resume.get("keywords", [])
         matching_keywords = find_matching_keywords(jd_keywords, resume_keywords)
+        keyword_score = len(matching_keywords) / len(jd_keywords) * 100 if jd_keywords else 0
+
+        final_score = round((vector_score * 0.7) + (keyword_score * 0.3), 2)  # Weighted score
 
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
-            "Match Percentage (Vector)": match_percentage,
+            "Vector Score": vector_score,
+            "Keyword Score": keyword_score,
+            "Final Score": final_score,
             "Matching Keywords": matching_keywords,
         })
 
-    # Sort results by match percentage and limit to max_results
-    return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)[:max_results]
+    # Sort results by final score and limit to max_results
+    return sorted(results, key=lambda x: x["Final Score"], reverse=True)[:max_results]
 
 def main():
     load_css()
@@ -135,7 +141,7 @@ def main():
         st.write(f"**Job Description:** {selected_jd_description}")
 
         if jd_embedding:
-            st.subheader("Top Matches (Vector Similarity)")
+            st.subheader("Top Matches")
             vector_matches = find_top_matches(jd_embedding, jd_keywords, max_results)
             if vector_matches:
                 vector_match_df = pd.DataFrame(vector_matches).astype(str)
