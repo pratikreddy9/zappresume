@@ -58,65 +58,22 @@ def load_css():
 def preprocess_keyword(keyword):
     return ' '.join(sorted(re.sub(r'[^\w\s]', '', keyword.casefold().strip()).split()))
 
-def fuzzy_match(keyword, target_keywords, threshold=80):
-    return any(fuzz.ratio(keyword, tk) >= threshold for tk in target_keywords)
-
-def find_keyword_matches(jd_keywords):
-    """
-    Match resumes to job descriptions using keywords.
-    """
-    total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
-    results = []
-    seen_keys = set()
-    resumes = resume_collection.find({"resumeId": {"$exists": True}}).limit(total_resumes)  # Fetch all valid documents
-
+def find_matching_keywords(jd_keywords, resume_keywords):
+    """Find matching keywords between JD and Resume."""
     jd_keywords_normalized = [preprocess_keyword(keyword) for keyword in jd_keywords]
+    resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume_keywords]
+    matching_keywords = [keyword for keyword in jd_keywords_normalized if keyword in resume_keywords_normalized]
+    return matching_keywords
 
-    for resume in resumes:
-        key = f"{resume.get('email')}_{resume.get('contactNo')}"
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-
-        resume_keywords = resume.get("keywords") or []
-        resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume_keywords]
-
-        matching_keywords = [
-            keyword for keyword in jd_keywords_normalized
-            if any(preprocess_keyword(keyword) == rk or fuzzy_match(keyword, [rk]) for rk in resume_keywords_normalized)
-        ]
-
-        match_count = len(matching_keywords)
-        total_keywords = len(jd_keywords_normalized)
-        if total_keywords == 0:
-            continue
-
-        match_percentage = round((match_count / total_keywords) * 100, 2)
-
-        results.append({
-            "Resume ID": resume.get("resumeId"),
-            "Name": resume.get("name", "N/A"),
-            "Match Percentage (Keywords)": match_percentage,
-            "Matching Keywords": matching_keywords,
-        })
-
-    return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
-
-def find_top_matches(jd_embedding):
+def find_top_matches(jd_embedding, jd_keywords, max_results):
     """
-    Find top matches using vector similarity.
+    Find top matches using vector similarity and include matching keywords.
     """
     total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
     results = []
-    seen_keys = set()
     resumes = resume_collection.find({"resumeId": {"$exists": True}}).limit(total_resumes)
 
     for resume in resumes:
-        key = f"{resume.get('email')}_{resume.get('contactNo')}"
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-
         resume_embedding = resume.get("embedding")
         if not resume_embedding:
             continue
@@ -124,13 +81,18 @@ def find_top_matches(jd_embedding):
         similarity_score = 1 - cosine(jd_embedding, resume_embedding)
         match_percentage = round(similarity_score * 100, 2)
 
+        resume_keywords = resume.get("keywords", [])
+        matching_keywords = find_matching_keywords(jd_keywords, resume_keywords)
+
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
             "Match Percentage (Vector)": match_percentage,
+            "Matching Keywords": matching_keywords,
         })
 
-    return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)
+    # Sort results by match percentage and limit to max_results
+    return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)[:max_results]
 
 def main():
     load_css()
@@ -172,19 +134,11 @@ def main():
         st.write(f"**Job Description ID:** {selected_jd_id}")
         st.write(f"**Job Description:** {selected_jd_description}")
 
-        st.subheader("Top Matches (Keywords)")
-        keyword_matches = find_keyword_matches(jd_keywords)
-        if keyword_matches:
-            keyword_match_df = pd.DataFrame(keyword_matches[:max_results]).astype(str)
-            st.dataframe(keyword_match_df, use_container_width=True, height=300)
-        else:
-            st.info("No matching resumes found.")
-
         if jd_embedding:
             st.subheader("Top Matches (Vector Similarity)")
-            vector_matches = find_top_matches(jd_embedding)
+            vector_matches = find_top_matches(jd_embedding, jd_keywords, max_results)
             if vector_matches:
-                vector_match_df = pd.DataFrame(vector_matches[:max_results]).astype(str)
+                vector_match_df = pd.DataFrame(vector_matches).astype(str)
                 st.dataframe(vector_match_df, use_container_width=True, height=300)
             else:
                 st.info("No matching resumes found.")
