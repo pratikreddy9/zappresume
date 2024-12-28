@@ -1,25 +1,33 @@
 import streamlit as st
 import pandas as pd
 from pymongo import MongoClient
-import requests
 import re
 from rapidfuzz import fuzz
 import os
+import numpy as np
+from scipy.spatial.distance import cosine
 
 # Disable Streamlit's file watcher to avoid inotify limit issues
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 
 # MongoDB connection details
-mongo_uri = st.secrets["mongo"]["uri"]
-client = MongoClient(mongo_uri)
+host = "notify.pesuacademy.com"
+port = 27017
+username = "admin"
+password = "Ayotta@123"
+auth_db = "admin"
+db_name = "resumes_database"
 
-# Accessing the database and collections
-db = client["resumes_database"]
-resume_collection = db["resumes"]  # Collection for resumes
-jd_collection = db["job_description"]  # Collection for job descriptions
-
-# Lambda function URL for processing job descriptions
-lambda_url = "https://ljlj3twvuk.execute-api.ap-south-1.amazonaws.com/default/getJobDescriptionVector"
+client = MongoClient(
+    host=host,
+    port=port,
+    username=username,
+    password=password,
+    authSource=auth_db
+)
+db = client[db_name]
+resume_collection = db["resumes"]
+jd_collection = db["job_description"]
 
 # Set Streamlit page configuration for a wider layout
 st.set_page_config(layout="wide")
@@ -48,60 +56,29 @@ def load_css():
     )
 
 def preprocess_keyword(keyword):
-    """Preprocess a keyword by normalizing its format."""
-    keyword = keyword.casefold().strip()
-    keyword = re.sub(r'[^\w\s]', '', keyword)
-    return ' '.join(sorted(keyword.split()))
+    return ' '.join(sorted(re.sub(r'[^\w\s]', '', keyword.casefold().strip()).split()))
 
 def fuzzy_match(keyword, target_keywords, threshold=80):
-    """Perform fuzzy matching with a similarity threshold."""
     return any(fuzz.ratio(keyword, tk) >= threshold for tk in target_keywords)
 
-def find_duplicate_resumes():
-    """Find duplicate resumes based on email and phone number."""
-    duplicates = {}
-    all_resumes = list(resume_collection.find())
-    
-    # Group resumes by email and phone
-    for resume in all_resumes:
-        email = resume.get('email')
-        phone = resume.get('contactNo')
-        
-        # Create a key only if either email or phone is not None
-        if email or phone:
-            key = f"{email}_{phone}"
-            if key in duplicates:
-                duplicates[key].append(resume)
-            else:
-                duplicates[key] = [resume]
-    
-    # Filter out non-duplicates
-    duplicate_groups = {k: v for k, v in duplicates.items() if len(v) > 1}
-    total_duplicates = sum(len(group) - 1 for group in duplicate_groups.values())
-    
-    return total_duplicates
-
-def find_keyword_matches(jd_keywords, num_candidates=10):
-    """Match resumes to job descriptions using keywords."""
+def find_keyword_matches(jd_keywords, max_results):
+    """
+    Match resumes to job descriptions using keywords.
+    """
+    total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
     results = []
     seen_keys = set()
-    resumes = resume_collection.find().limit(num_candidates * 2)  # Fetch more to account for duplicates
+    resumes = resume_collection.find({"resumeId": {"$exists": True}}).limit(total_resumes)  # Fetch all valid documents
 
     jd_keywords_normalized = [preprocess_keyword(keyword) for keyword in jd_keywords]
 
     for resume in resumes:
-        # Create a unique key based on email and phone
         key = f"{resume.get('email')}_{resume.get('contactNo')}"
-        
-        # Skip if we've already seen this combination
         if key in seen_keys:
             continue
         seen_keys.add(key)
 
         resume_keywords = resume.get("keywords") or []
-        if not resume_keywords:
-            continue
-
         resume_keywords_normalized = [preprocess_keyword(keyword) for keyword in resume_keywords]
 
         matching_keywords = [
@@ -113,45 +90,32 @@ def find_keyword_matches(jd_keywords, num_candidates=10):
         total_keywords = len(jd_keywords_normalized)
         if total_keywords == 0:
             continue
-        match_percentage = round((match_count / total_keywords) * 100, 2)
 
-        # Add new fields for the table
-        skills = ", ".join(resume_keywords)
-        job_experiences = [
-            f"{job.get('title', 'N/A')} at {job.get('companyName', 'N/A')}" 
-            for job in resume.get("jobExperiences") or []
-        ]
-        educational_qualifications = [
-            f"{edu.get('degree', 'N/A')} in {edu.get('field', 'N/A')}" 
-            for edu in resume.get("educationalQualifications") or []
-        ]
+        match_percentage = round((match_count / total_keywords) * 100, 2)
 
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
             "Match Percentage (Keywords)": match_percentage,
             "Matching Keywords": matching_keywords,
-            "Skills": skills,
-            "Job Experiences": "; ".join(job_experiences),
-            "Educational Qualifications": "; ".join(educational_qualifications),
         })
 
-        if len(results) >= num_candidates:
+        if len(results) >= max_results:
             break
 
     return sorted(results, key=lambda x: x["Match Percentage (Keywords)"], reverse=True)
 
-def find_top_matches(jd_embedding, num_candidates=10):
-    """Find top matches using vector similarity."""
+def find_top_matches(jd_embedding, max_results):
+    """
+    Find top matches using vector similarity.
+    """
+    total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
     results = []
     seen_keys = set()
-    resumes = resume_collection.find().limit(num_candidates * 2)
+    resumes = resume_collection.find({"resumeId": {"$exists": True}}).limit(total_resumes)
 
     for resume in resumes:
-        # Create a unique key based on email and phone
         key = f"{resume.get('email')}_{resume.get('contactNo')}"
-        
-        # Skip if we've already seen this combination
         if key in seen_keys:
             continue
         seen_keys.add(key)
@@ -160,58 +124,26 @@ def find_top_matches(jd_embedding, num_candidates=10):
         if not resume_embedding:
             continue
 
-        dot_product = sum(a * b for a, b in zip(jd_embedding, resume_embedding))
-        magnitude_jd = sum(a * a for a in jd_embedding) ** 0.5
-        magnitude_resume = sum(b * b for b in resume_embedding) ** 0.5
-        if magnitude_jd == 0 or magnitude_resume == 0:
-            continue
-        similarity_score = dot_product / (magnitude_jd * magnitude_resume)
-
+        similarity_score = 1 - cosine(jd_embedding, resume_embedding)
         match_percentage = round(similarity_score * 100, 2)
-
-        # Add new fields for the table
-        skills = ", ".join(resume.get("keywords") or [])
-        job_experiences = [
-            f"{job.get('title', 'N/A')} at {job.get('companyName', 'N/A')}" 
-            for job in resume.get("jobExperiences") or []
-        ]
-        educational_qualifications = [
-            f"{edu.get('degree', 'N/A')} in {edu.get('field', 'N/A')}" 
-            for edu in resume.get("educationalQualifications") or []
-        ]
 
         results.append({
             "Resume ID": resume.get("resumeId"),
             "Name": resume.get("name", "N/A"),
             "Match Percentage (Vector)": match_percentage,
-            "Skills": skills,
-            "Job Experiences": "; ".join(job_experiences),
-            "Educational Qualifications": "; ".join(educational_qualifications),
         })
 
-        if len(results) >= num_candidates:
+        if len(results) >= max_results:
             break
 
     return sorted(results, key=lambda x: x["Match Percentage (Vector)"], reverse=True)
 
-def display_resume_details(resume_id):
-    resume = resume_collection.find_one({"resumeId": resume_id})
-    if not resume:
-        st.warning("Resume details not found!")
-        return
-
-    st.markdown("<div class='section-heading'>Personal Information</div>", unsafe_allow_html=True)
-    st.write(f"**Name:** {resume.get('name', 'N/A')}")
-    st.write(f"**Email:** {resume.get('email', 'N/A')}")
-    st.write(f"**Contact No:** {resume.get('contactNo', 'N/A')}")
-    st.write(f"**Address:** {resume.get('address', 'N/A')}")
-    st.markdown("---")
-
 def main():
-    st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
+    load_css()
 
-    total_resumes = resume_collection.count_documents({})
-    total_jds = jd_collection.count_documents({})
+    st.markdown("<div class='metrics-container'>", unsafe_allow_html=True)
+    total_resumes = resume_collection.count_documents({"resumeId": {"$exists": True}})
+    total_jds = jd_collection.count_documents({"jobId": {"$exists": True}})
     col1, col2 = st.columns(2)
 
     with col1:
@@ -222,23 +154,41 @@ def main():
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='section-heading'>Select Job Description for Matching</div>", unsafe_allow_html=True)
-    jds = list(jd_collection.find())
+    jds = list(jd_collection.find({"jobId": {"$exists": True}}))
     jd_mapping = {jd.get("jobDescription", "N/A"): jd.get("jobId", "N/A") for jd in jds}
     selected_jd_description = st.selectbox("Select a Job Description:", list(jd_mapping.keys()))
 
+    max_results = st.number_input("Enter the number of top matches to display:", min_value=1, max_value=total_resumes, value=10, step=1)
+
     if selected_jd_description:
-        selected_jd_id = jd_mapping[selected_jd_description]
-        selected_jd = next(jd for jd in jds if jd.get("jobId") == selected_jd_id)
+        selected_jd_id = jd_mapping.get(selected_jd_description)
+        if not selected_jd_id:
+            st.error(f"Job Description ID not found for the selected description: {selected_jd_description}")
+            return
+
+        try:
+            selected_jd = next(jd for jd in jds if jd.get("jobId") == selected_jd_id)
+        except StopIteration:
+            st.error(f"Job Description with ID {selected_jd_id} not found in the database.")
+            return
+
         jd_keywords = selected_jd.get("structured_query", {}).get("keywords", [])
         jd_embedding = selected_jd.get("embedding")
 
         st.write(f"**Job Description ID:** {selected_jd_id}")
         st.write(f"**Job Description:** {selected_jd_description}")
 
-        # First display vector similarity matches
+        st.subheader("Top Matches (Keywords)")
+        keyword_matches = find_keyword_matches(jd_keywords, max_results)
+        if keyword_matches:
+            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
+            st.dataframe(keyword_match_df, use_container_width=True, height=300)
+        else:
+            st.info("No matching resumes found.")
+
         if jd_embedding:
             st.subheader("Top Matches (Vector Similarity)")
-            vector_matches = find_top_matches(jd_embedding)
+            vector_matches = find_top_matches(jd_embedding, max_results)
             if vector_matches:
                 vector_match_df = pd.DataFrame(vector_matches).astype(str)
                 st.dataframe(vector_match_df, use_container_width=True, height=300)
@@ -247,15 +197,5 @@ def main():
         else:
             st.error("Embedding not found for the selected JD.")
 
-        # Then display keyword matches
-        st.subheader("Top Matches (Keywords)")
-        keyword_matches = find_keyword_matches(jd_keywords)
-        if keyword_matches:
-            keyword_match_df = pd.DataFrame(keyword_matches).astype(str)
-            st.dataframe(keyword_match_df, use_container_width=True, height=300)
-        else:
-            st.info("No matching resumes found.")
-
 if __name__ == "__main__":
-    load_css()
     main()
